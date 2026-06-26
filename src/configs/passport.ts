@@ -22,7 +22,12 @@ passport.use(
       callbackURL: process.env.GOOGLE_CALLBACK_URL as string,
       scope: ["openid", "profile", "email"],
     },
-    async (profile: any, done: any) => {
+    async (
+      _accessToken: string,
+      _refreshToken: string,
+      profile: any,
+      done: any,
+    ) => {
       try {
         let user = await User.findOne({
           socialId: profile.id,
@@ -69,7 +74,12 @@ passport.use(
       callbackURL: process.env.GITHUB_CALLBACK_URL as string,
       scope: ["user:email"],
     },
-    async (profile: any, done: any) => {
+    async (
+      _accessToken: string,
+      _refreshToken: string,
+      profile: any,
+      done: any,
+    ) => {
       try {
         let user = await User.findOne({
           socialId: profile.id,

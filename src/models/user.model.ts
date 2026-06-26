@@ -58,19 +58,20 @@ const userSchema = new mongoose.Schema<IUser>(
     first_name: {
       type: String,
       required: true,
+      trim: true,
     },
     last_name: {
       type: String,
       required: true,
+      trim: true,
     },
     email: {
       type: String,
       required: true,
-      unique: true,
+      trim: true,
     },
     password: {
       type: String,
-      required: false,
       select: false,
     },
     avatar_url: {
@@ -91,7 +92,6 @@ const userSchema = new mongoose.Schema<IUser>(
     socialId: {
       type: String,
       default: null,
-      unique: true,
     },
     address: {
       type: [addressSchema],
@@ -128,6 +128,42 @@ userSchema.methods.toPublicProfile = function (
     createdAt: this.createdAt,
   };
 };
+
+// ===== INDEXES =====
+userSchema.index(
+  { provider: 1, socialId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      socialId: { $type: "string" }, // Only apply when socialId is not null
+    },
+    name: "unique_provider_socialId",
+  },
+);
+
+userSchema.index(
+  { email: 1, provider: 1 },
+  {
+    unique: true,
+    name: "unique_email_provider",
+  },
+);
+
+userSchema.index({ email: 1 }, { name: "idx_email" });
+
+userSchema.index({ isDeleted: 1 }, { name: "idx_isDeleted" });
+
+userSchema.index({ role: 1, isDeleted: 1 }, { name: "idx_role_isDeleted" });
+
+userSchema.index(
+  { isDeleted: 1, deletedAt: 1 },
+  { name: "idx_isDeleted_deletedAt" },
+);
+
+userSchema.index(
+  { first_name: "text", last_name: "text", email: "text" },
+  { name: "idx_text_search" },
+);
 
 const UserModel = mongoose.model(
   "User",

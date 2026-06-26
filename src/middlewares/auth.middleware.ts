@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import asyncHandler from "express-async-handler";
 import jwt from "jsonwebtoken";
-
+import rateLimit from "express-rate-limit";
 export const validateRegister = (
   req: Request,
   res: Response,
@@ -47,10 +47,19 @@ export const validateRegister = (
   next();
 };
 
+export const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => {
+    return req.body.email;
+  },
+  message: "Too many login attempts, try again later",
+});
+
+
 export const checkOwnership = asyncHandler(
   async (req: Request, res: Response, next: NextFunction): Promise<any> => {
     const token = req.headers.authorization?.split(" ")[1];
-
     try {
       const payload = jwt.verify(
         token as string,
@@ -67,7 +76,7 @@ export const checkOwnership = asyncHandler(
     } catch (err) {
       return res.status(401).json({
         success: false,
-        message: "Invalid or expired token",
+        message: err,
       });
     }
   },

@@ -72,16 +72,20 @@ export const googleCallback = [
         { refreshToken },
         { runValidators: false },
       );
-      res.status(200).json({
-        accessToken: accessToken,
-      });
+
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000,
       });
-
+      res.status(200).json({
+        status: true,
+        message: "Success",
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        user: userPayload,
+      });
       res.redirect(`${process.env.FRONTEND_URL}/callbackview?provider=google`);
       // console.log(
       //   `This is URL of access token ${process.env.FRONTEND_URL}/callbackview?provider=google`,
@@ -151,7 +155,7 @@ export const register = asynchandler(
       provider: "local",
       role: "user",
     })) as unknown as IUserDocument;
-    res.redirect(`${process.env.FRONTEND_URL}/login?registered=true`);
+
     return res.status(201).json({
       success: true,
       message: "Registration successful.",
@@ -200,6 +204,7 @@ export const login = asynchandler(
       message: "Login successful.",
       success: true,
       accessToken: accessToken,
+      refreshToken: refreshToken,
       user: user.toPublicProfile(),
     });
   },
@@ -207,8 +212,14 @@ export const login = asynchandler(
 
 export const refresh = asynchandler(
   async (req: Request, res: Response): Promise<any> => {
-    const { refreshToken } = req.cookies;
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) {
+      return res.status(401).json({
+        success: false,
 
+        message: "Refresh token required",
+      });
+    }
     let payload;
     try {
       payload = jwt.verify(
@@ -227,6 +238,7 @@ export const refresh = asynchandler(
     if (!user || user.refreshToken !== refreshToken) {
       return res.status(401).json({
         success: false,
+        payloadId: payload?.sub,
         message: "Refresh token not valid",
       });
     }
