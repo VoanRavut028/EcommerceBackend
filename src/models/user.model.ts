@@ -26,6 +26,9 @@ export interface IUser {
   deletedAt: Date | null;
   createdAt?: Date;
   updatedAt?: Date;
+  firebase_uid?: string;
+  phone_number?: string;
+  is_phone_verified?: boolean;
 }
 
 export interface IUserDocument extends mongoose.Document, IUser {
@@ -69,6 +72,7 @@ const userSchema = new mongoose.Schema<IUser>(
       type: String,
       required: true,
       trim: true,
+      unique:true
     },
     password: {
       type: String,
@@ -109,6 +113,21 @@ const userSchema = new mongoose.Schema<IUser>(
     deletedAt: {
       type: Date,
       default: null,
+    },
+    firebase_uid: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+    phone_number: {
+      type: String,
+      unique: true,
+      sparse: true,
+      trim: true,
+    },
+    is_phone_verified: {
+      type: Boolean,
+      default: false,
     },
   },
   {

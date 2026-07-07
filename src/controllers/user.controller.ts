@@ -1,7 +1,7 @@
 import asyncHandler from "express-async-handler";
 import type { Request, Response } from "express";
 import User from "../models/user.model.ts";
-
+import { generateAccessToken } from "../utils/token.ts";
 export const profile = async (req: Request, res: Response): Promise<any> => {
   if (!req.user) {
     return res.status(401).json({
@@ -18,10 +18,11 @@ export const profile = async (req: Request, res: Response): Promise<any> => {
       message: "User not found",
     });
   }
-
+  const accessToken = generateAccessToken(user);
   return res.status(200).json({
     success: true,
+    accessToken: accessToken,
     message: "Profile fetched successfully",
-    data: user.toPublicProfile(),
+    user: user.toPublicProfile(),
   });
 };

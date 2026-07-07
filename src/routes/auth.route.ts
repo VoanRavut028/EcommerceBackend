@@ -1,5 +1,9 @@
 import express from "express";
-import { register, login, refresh } from "../controllers/auth.controller.ts";
+import {
+  completeRegister,
+  login,
+  refresh,
+} from "../controllers/auth.controller.ts";
 import {
   validateRegister,
   checkOwnership,
@@ -21,7 +25,7 @@ authRouter.get("/auth/google/callback", googleCallback);
 authRouter.get("/auth/github", github);
 authRouter.get("/auth/github/callback", githubCallback);
 
-authRouter.post("/register", validateRegister, register);
+authRouter.post("/register", validateRegister, completeRegister);
 authRouter.post("/login", login);
 // authRouter.post("/login", loginLimiter, login);
 

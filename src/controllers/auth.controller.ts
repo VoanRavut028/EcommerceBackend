@@ -2,48 +2,20 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import asynchandler from "express-async-handler";
-import bcrypt from "bcryptjs";
 import User from "../models/user.model.ts";
-import jwt from "jsonwebtoken";
+
 import passport from "../configs/passport.js";
-import type { IUser, IUserDocument } from "../models/user.model.ts";
+import type { IUserDocument } from "../models/user.model.ts";
+import {
+  handleOAuthLogin,
+  loginUser,
+  refreshTokenService,
+  completeRegistration,
+  registerPendingUser,
+  verifyRegister,
+} from "../services/auth.service.ts";
 
 import type { Request, Response, NextFunction } from "express";
-export const generateAccessToken = (user: IUserDocument) => {
-  const payload = {
-    sub: user._id?.toString(),
-    email: user.email,
-    role: user.role,
-  } as unknown as jwt.JwtPayload;
-
-  return jwt.sign(
-    payload,
-    process.env.JWT_SECRET as string,
-    {
-      expiresIn: process.env.JWT_EXPIRE as string,
-      issuer: process.env.JWT_ISSUER as string,
-      algorithm: "HS256",
-    } as jwt.SignOptions,
-  );
-};
-
-export const generateRefreshToken = (user: IUserDocument) => {
-  const payload = {
-    sub: user._id?.toString(),
-    email: user.email,
-    role: user.role,
-  } as unknown as jwt.JwtPayload;
-
-  return jwt.sign(
-    payload,
-    process.env.JWT_REFRESH_SECRET as string,
-    {
-      expiresIn: process.env.JWT_REFRESH_TOKEN_EXPIRE as string,
-      issuer: process.env.JWT_ISSUER as string,
-      algorithm: "HS256",
-    } as jwt.SignOptions,
-  );
-};
 
 // Google Auth
 export const google = (req: Request, res: Response, next: NextFunction) => {
@@ -63,15 +35,8 @@ export const googleCallback = [
   async (req: Request, res: Response) => {
     try {
       const userPayload = req.user as IUserDocument;
-
-      const accessToken = generateAccessToken(userPayload);
-      const refreshToken = generateRefreshToken(userPayload);
-
-      await User.findByIdAndUpdate(
-        userPayload._id,
-        { refreshToken },
-        { runValidators: false },
-      );
+      const { accessToken, refreshToken, user } =
+        await handleOAuthLogin(userPayload);
 
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
@@ -82,9 +47,9 @@ export const googleCallback = [
       res.status(200).json({
         status: true,
         message: "Success",
-        accessToken: accessToken,
-        refreshToken: refreshToken,
-        user: userPayload,
+        accessToken,
+        refreshToken,
+        user,
       });
       res.redirect(`${process.env.FRONTEND_URL}/callbackview?provider=google`);
       // console.log(
@@ -112,15 +77,9 @@ export const githubCallback = [
   }),
   async (req: Request, res: Response) => {
     const userPayload = req.user as IUserDocument;
-    const accessToken = generateAccessToken(userPayload);
-    const refreshToken = generateRefreshToken(userPayload);
-    await User.findByIdAndUpdate(
-      userPayload._id,
-      { refreshToken },
-      { runValidators: false },
-    );
+    const { accessToken, refreshToken } = await handleOAuthLogin(userPayload);
     res.status(200).json({
-      accessToken: accessToken,
+      accessToken,
     });
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
@@ -133,33 +92,49 @@ export const githubCallback = [
   },
 ];
 
-export const register = asynchandler(
+export const pendingRegister = asynchandler(
   async (req: Request, res: Response): Promise<any> => {
-    const { first_name, last_name, email, password } = req.body;
-
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        message: "Email is already registered.",
-      });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const user = (await User.create({
+    const { first_name, last_name, email, phone_number } = req.body;
+    const result = await registerPendingUser({
       first_name,
       last_name,
       email,
-      password: hashedPassword,
-      provider: "local",
-      role: "user",
-    })) as unknown as IUserDocument;
+      phone_number,
+    });
+    return res.status(result.status).json({
+      success: result.success,
+      ...(result.pendingSignupId ? { user: result.pendingSignupId } : {}),
+    });
+  },
+);
 
-    return res.status(201).json({
-      success: true,
-      message: "Registration successful.",
-      user: user.toPublicProfile(),
+export const verifyRegisterOtp = asynchandler(
+  async (req: Request, res: Response): Promise<any> => {
+    const { idToken, phone_number } = req.body;
+    const result = await verifyRegister({ idToken, phone_number });
+    return res.status(result.status).json({
+      success: result.success,
+      message: result.message,
+      ...(result.registrationTicket
+        ? { registrationTicket: result.registrationTicket }
+        : {}),
+    });
+  },
+);
+
+export const completeRegister = asynchandler(
+  async (req: Request, res: Response): Promise<any> => {
+    const { registrationTicket, password } = req.body;
+
+    const result = await completeRegistration({
+      registrationTicket,
+      password,
+    });
+
+    return res.status(result.status).json({
+      success: result.success,
+      message: result.message,
+      ...(result.user ? { user: result.user } : {}),
     });
   },
 );
@@ -168,44 +143,28 @@ export const login = asynchandler(
   async (req: Request, res: Response): Promise<any> => {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email }).select("+password");
-    if (!user) {
-      return res.status(401).json({
-        message: "Invalid email or password.",
-        success: false,
-      });
-    }
-    const checkPassword = await bcrypt.compare(
-      password as string,
-      user.password as string,
-    );
-    if (!checkPassword) {
-      return res.status(401).json({
-        message: "Invalid email or password.",
-        success: false,
-      });
-    }
-    const accessToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
-    await User.findByIdAndUpdate(
-      user._id,
-      { refreshToken },
-      { runValidators: false },
-    );
+    const result = await loginUser({ email, password });
 
-    res.cookie("refreshToken", refreshToken, {
+    if (!result.success) {
+      return res.status(result.status).json({
+        message: result.message,
+        success: false,
+      });
+    }
+
+    res.cookie("refreshToken", result.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
-    // res.redirect(`${process.env.FRONTEND_URL}/callbackview?provider=local`);
-    return res.status(200).json({
-      message: "Login successful.",
+
+    return res.status(result.status).json({
+      message: result.message,
       success: true,
-      accessToken: accessToken,
-      refreshToken: refreshToken,
-      user: user.toPublicProfile(),
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: result.user,
     });
   },
 );
@@ -213,42 +172,20 @@ export const login = asynchandler(
 export const refresh = asynchandler(
   async (req: Request, res: Response): Promise<any> => {
     const refreshToken = req.cookies.refreshToken;
-    if (!refreshToken) {
-      return res.status(401).json({
-        success: false,
+    const result = await refreshTokenService(refreshToken);
 
-        message: "Refresh token required",
-      });
-    }
-    let payload;
-    try {
-      payload = jwt.verify(
-        refreshToken,
-        process.env.JWT_REFRESH_SECRET as string,
-      );
-    } catch (err: any) {
-      return res.status(400).json({
+    if (!result.success) {
+      return res.status(result.status).json({
         success: false,
-        message: err.message,
+        ...(result.payloadId ? { payloadId: result.payloadId } : {}),
+        message: result.message,
       });
     }
 
-    const user = await User.findById(payload.sub).select("+refreshToken");
-
-    if (!user || user.refreshToken !== refreshToken) {
-      return res.status(401).json({
-        success: false,
-        payloadId: payload?.sub,
-        message: "Refresh token not valid",
-      });
-    }
-
-    const accessToken = generateAccessToken(user);
-    console.log(`Cookies : ${req.cookies}`);
-    return res.status(200).json({
+    return res.status(result.status).json({
       success: true,
-      message: "Token refreshed successfully",
-      accessToken: accessToken,
+      message: result.message,
+      accessToken: result.accessToken,
     });
   },
 );
