@@ -10,7 +10,11 @@ import {
   signRegistrationTicket,
   verifyRegistrationTicket,
 } from "../utils/ticketOtp.ts";
-import { validatePassword, hashPassword } from "../utils/passwordValidator.ts";
+import {
+  validatePassword,
+  hashPassword,
+  verifyPassword,
+} from "../utils/passwordValidator.ts";
 import { pendingRegister } from "../controllers/auth.controller.ts";
 import { success } from "zod";
 type RegisterInput = {
@@ -124,8 +128,9 @@ export const verifyRegister = async ({
         success: false,
       };
     }
+
     return {
-      message: "Invalid or expired token",
+      message: `Invalid or expired token ${err}`,
       status: 401,
       success: false,
     };
@@ -213,6 +218,7 @@ export const completeRegistration = async ({
 
     return {
       accessToken,
+      refreshToken,
       status: 201,
       success: true,
       message: "User registered successfully",
@@ -254,7 +260,7 @@ export const loginUser = async ({ email, password }: LoginInput) => {
     };
   }
 
-  const checkPassword = await bcrypt.compare(
+  const checkPassword = await verifyPassword(
     password as string,
     user.password as string,
   );

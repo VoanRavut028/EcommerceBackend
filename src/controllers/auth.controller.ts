@@ -22,6 +22,7 @@ export const google = (req: Request, res: Response, next: NextFunction) => {
   passport.authenticate("google", {
     session: false,
     scope: ["openid", "profile", "email"],
+    prompt: "consent",
   })(req, res, next);
 };
 
@@ -44,14 +45,13 @@ export const googleCallback = [
         sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000,
       });
-      res.status(200).json({
-        status: true,
-        message: "Success",
-        accessToken,
-        refreshToken,
-        user,
-      });
-      res.redirect(`${process.env.FRONTEND_URL}/callbackview?provider=google`);
+
+      const redirectUrl = new URL(
+        `${process.env.FRONTEND_URL}/callbackview?provider=google`,
+      );
+      redirectUrl.searchParams.set("accessToken", accessToken);
+      res.redirect(redirectUrl.toString());
+      // res.redirect(`${process.env.FRONTEND_URL}/index?provider=google`);
       // console.log(
       //   `This is URL of access token ${process.env.FRONTEND_URL}/callbackview?provider=google`,
       // );
@@ -78,17 +78,18 @@ export const githubCallback = [
   async (req: Request, res: Response) => {
     const userPayload = req.user as IUserDocument;
     const { accessToken, refreshToken } = await handleOAuthLogin(userPayload);
-    res.status(200).json({
-      accessToken,
-    });
+
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
-
-    res.redirect(`${process.env.FRONTEND_URL}/callbackview?provider=github`);
+    const redirectUrl = new URL(
+      `${process.env.FRONTEND_URL}/callbackview?provider=google`,
+    );
+    redirectUrl.searchParams.set("accessToken", accessToken);
+    res.redirect(redirectUrl.toString());
   },
 ];
 
@@ -130,7 +131,12 @@ export const completeRegister = asynchandler(
       registrationTicket,
       password,
     });
-
+    res.cookie("refreshToken", result.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
     return res.status(result.status).json({
       success: result.success,
       message: result.message,
@@ -163,7 +169,6 @@ export const login = asynchandler(
       message: result.message,
       success: true,
       accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
       user: result.user,
     });
   },

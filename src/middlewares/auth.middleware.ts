@@ -71,7 +71,7 @@ export const checkOwnership = asyncHandler(
         role: (payload as any).role,
       };
       req.user = user;
-      console.log("Authenticated user ID:", req.user);
+    
       next();
     } catch (err) {
       return res.status(401).json({
