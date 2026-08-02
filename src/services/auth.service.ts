@@ -242,6 +242,7 @@ export const completeRegistration = async ({
 };
 
 export const loginUser = async ({ email, password }: LoginInput) => {
+  debugger;
   const user = await User.findOne({ email }).select("+password");
 
   if (!user) {
@@ -328,12 +329,17 @@ export const refreshTokenService = async (refreshToken: string | undefined) => {
   }
 
   const accessToken = generateAccessToken(user);
+  const newRefreshToken = generateRefreshToken(user);
+
+  user.refreshToken = newRefreshToken;
+  await user.save();
 
   return {
     success: true,
     status: 200,
     message: "Token refreshed successfully",
     accessToken,
+    refreshToken: newRefreshToken,
   };
 };
 

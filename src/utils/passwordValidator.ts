@@ -24,7 +24,7 @@ export function validatePassword(
   const lowerPassword = password.toLowerCase();
 
   if (extraContext?.email) {
-    const emailLocalPart = extraContext.email.split("@")[0].toLowerCase();
+    const emailLocalPart = ((extraContext?.email ?? '').split("@")[0] ?? '').toLowerCase();
     if (lowerPassword.includes(emailLocalPart)) {
       errors.push("Password must not contain your email");
     }

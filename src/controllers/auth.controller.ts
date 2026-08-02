@@ -147,6 +147,7 @@ export const completeRegister = asynchandler(
 
 export const login = asynchandler(
   async (req: Request, res: Response): Promise<any> => {
+    debugger;
     const { email, password } = req.body;
 
     const result = await loginUser({ email, password });
@@ -173,11 +174,10 @@ export const login = asynchandler(
     });
   },
 );
-
 export const refresh = asynchandler(
   async (req: Request, res: Response): Promise<any> => {
-    const refreshToken = req.cookies.refreshToken;
-    const result = await refreshTokenService(refreshToken);
+    const oldRefreshToken = req.cookies.refreshToken;
+    const result = await refreshTokenService(oldRefreshToken);
 
     if (!result.success) {
       return res.status(result.status).json({
@@ -186,6 +186,13 @@ export const refresh = asynchandler(
         message: result.message,
       });
     }
+
+    res.cookie("refreshToken", result.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
 
     return res.status(result.status).json({
       success: true,

@@ -13,6 +13,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "@faker-js/faker": "^10.5.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/dotenv": "^6.1.1",
     "@types/jsonwebtoken": "^9.0.10",
