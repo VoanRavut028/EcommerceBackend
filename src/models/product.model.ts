@@ -1,16 +1,17 @@
 import mongoose from "mongoose";
 import type { HydratedDocument } from "mongoose";
-interface IImage {
+import slugify from "slugify";
+export interface IImage {
   url: string;
-  alt: string;
-  isPrimary: boolean;
+  alt?: string;
+  isPrimary?: boolean;
 }
-interface IAttribute {
+export interface IAttribute {
   name: string;
   value: string | number | boolean | (string | number)[];
   unit?: string;
 }
-interface IVariant {
+export interface IVariant {
   sku: string;
   options: Map<string, string>;
   price: number;
@@ -22,7 +23,7 @@ interface IVariant {
   isActive: boolean;
 }
 
-interface IProduct {
+export interface IProduct {
   title: string;
   slug: string;
   description: string;
@@ -118,7 +119,7 @@ const ProductSchema = new mongoose.Schema<IProduct>(
     },
     slug: {
       type: String,
-      required: true,
+     
       unique: true,
       lowercase: true,
       trim: true,
@@ -127,8 +128,9 @@ const ProductSchema = new mongoose.Schema<IProduct>(
       type: String,
       required: true,
       trim: true,
+      maxlength: 10000,
     },
-    shortDescription: { type: String, trim: true, maxlength: 300 },
+    shortDescription: { type: String, trim: true, maxlength: 500 },
 
     category: {
       type: mongoose.Schema.Types.ObjectId,
@@ -143,6 +145,7 @@ const ProductSchema = new mongoose.Schema<IProduct>(
       type: String,
       trim: true,
       index: true,
+      maxlength: 100,
     },
 
     attributes: {
@@ -209,6 +212,21 @@ ProductSchema.pre("save", async function (this: HydratedDocument<IProduct>) {
       this.minPrice = 0;
       this.maxPrice = 0;
     }
+  }
+});
+ProductSchema.pre("save", async function () {
+  if (this.isModified("title")) {
+    this.slug = slugify(this.title, {
+      lower: true,
+      strict: true,
+    });
+  }
+  if (!this.metaTitle || this.metaTitle.trim() === "") {
+    this.metaTitle = this.title;
+  }
+  if (!this.metaDescription || this.metaDescription.trim() === "") {
+    this.metaDescription =
+      this.shortDescription || this.description?.substring(0, 160);
   }
 });
 export default mongoose.model("Product", ProductSchema);

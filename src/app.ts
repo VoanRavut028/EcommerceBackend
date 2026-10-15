@@ -4,10 +4,11 @@ import morgan from "morgan";
 import cookiesParser from "cookie-parser";
 import passport from "./configs/passport.ts";
 import authRouter from "./routes/auth.route.ts";
-import productRoute from "./routes/product.route.ts";
 import categoryRouter from "./routes/category.route.ts";
 import errorHandler from "./middlewares/errorHandler.ts";
-
+import resetPasswordRouter from "./routes/resetPassword.route.ts";
+import productRouter from "./routes/products/product.route.ts";
+import publicProductRouter from "./routes/products/productPublic.route.ts";
 const app = express();
 app.use(cookiesParser());
 app.use(express.json());
@@ -26,8 +27,10 @@ app.use(passport.initialize());
 app.use(morgan("dev"));
 
 app.use("/api/v1", authRouter);
-app.use("/api/v1", productRoute);
 app.use("/api/v1", categoryRouter);
+app.use("/api/v1", resetPasswordRouter);
+app.use("/api/v1", publicProductRouter);
+app.use("/api/v1", productRouter);
 app.use(errorHandler);
 
 export default app;

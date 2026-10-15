@@ -2,6 +2,16 @@ import type { Request, Response, NextFunction } from "express";
 import asyncHandler from "express-async-handler";
 import jwt from "jsonwebtoken";
 import rateLimit from "express-rate-limit";
+
+declare global {
+  namespace Express {
+    interface User {
+      role: "user" | "admin";
+      sub?: string;
+      email?: string;
+    }
+  }
+}
 export const validateRegister = (
   req: Request,
   res: Response,
@@ -56,27 +66,39 @@ export const loginLimiter = rateLimit({
   message: "Too many login attempts, try again later",
 });
 
-
 export const checkOwnership = asyncHandler(
   async (req: Request, res: Response, next: NextFunction): Promise<any> => {
     const token = req.headers.authorization?.split(" ")[1];
+    if (!token)
+      return res.status(401).json({
+        success: false,
+        message: "No token provided",
+      });
+
     try {
       const payload = jwt.verify(
         token as string,
         process.env.JWT_SECRET as string,
-      );
-      const user = {
-        sub: (payload as any).sub,
-        email: (payload as any).email,
-        role: (payload as any).role,
+      ) as jwt.JwtPayload;
+      const role = payload.role;
+      if (role !== "user" && role !== "admin") {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid token",
+        });
+      }
+
+      req.user = {
+        ...(typeof payload.sub === "string" ? { sub: payload.sub } : {}),
+        ...(typeof payload.email === "string" ? { email: payload.email } : {}),
+        role,
       };
-      req.user = user;
-    
+
       next();
     } catch (err) {
       return res.status(401).json({
         success: false,
-        message: err,
+        message: "Invalid token",
       });
     }
   },

@@ -26,3 +26,28 @@ export const verifyRegistrationTicket = (
 
   return { pendingSignupId: payload.pendingSignupId };
 };
+export const signResetPasswordTicket = (pendingSignupId: string) => {
+  return jwt.sign(
+    { pendingSignupId, purpose: "reset_password" },
+    TICKET_SECRET,
+    {
+      expiresIn: "15m",
+    },
+  );
+};
+
+export const verifyResetPasswordTicket = (
+  ticket: string,
+): { pendingSignupId: string } => {
+  const payload = jwt.verify(ticket, TICKET_SECRET) as {
+    pendingSignupId: string;
+    purpose: string;
+  };
+
+  if (payload.purpose !== "reset_password") {
+    throw new Error("Invalid ticket purpose");
+  }
+
+  return { pendingSignupId: payload.pendingSignupId };
+};
+

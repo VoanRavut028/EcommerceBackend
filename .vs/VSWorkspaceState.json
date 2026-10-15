@@ -2,7 +2,13 @@
   "ExpandedNodes": [
     "",
     "\\src",
-    "\\src\\models"
+    "\\src\\controllers",
+    "\\src\\middlewares",
+    "\\src\\models",
+    "\\src\\routes",
+    "\\src\\services",
+    "\\src\\utils"
   ],
+  "SelectedNode": "\\src\\services\\product.service.ts",
   "PreviewInSolutionExplorer": false
 }

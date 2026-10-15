@@ -15,8 +15,7 @@ import {
   hashPassword,
   verifyPassword,
 } from "../utils/passwordValidator.ts";
-import { pendingRegister } from "../controllers/auth.controller.ts";
-import { success } from "zod";
+import { hashToken } from "../utils/token.ts";
 type RegisterInput = {
   first_name: string;
   last_name: string;
@@ -25,6 +24,10 @@ type RegisterInput = {
 };
 
 type LoginInput = {
+  phone: string;
+  password: string;
+};
+type LoginCredentialEmail = {
   email: string;
   password: string;
 };
@@ -38,7 +41,7 @@ export const registerPendingUser = async ({
     const user = await User.findOne({ $or: [{ email }, { phone_number }] });
     if (user) {
       return {
-        message: "Email or Phone number already exist.",
+        code: "AUTH_USER_ALREADY_EXISTS",
         status: 409,
         success: false,
       };
@@ -59,14 +62,14 @@ export const registerPendingUser = async ({
     );
 
     return {
-      message: "Pending signup created. Proceed to phone verification.",
+      code: "AUTH_PENDING_SIGNUP_CREATED",
       pendingSignupId: pendingUser._id,
       status: 201,
       success: true,
     };
   } catch (err) {
     return {
-      message: "Error creating pending signup",
+      code: "AUTH_PENDING_SIGNUP_ERROR",
       status: 500,
       success: false,
     };
@@ -82,9 +85,9 @@ export const verifyRegister = async ({
 }) => {
   if (!idToken || !phone_number) {
     return {
+      code: "AUTH_INVALID_VERIFICATION_REQUEST",
       status: 400,
       success: false,
-      message: "idToken and phone_number are required",
     };
   }
 
@@ -93,18 +96,18 @@ export const verifyRegister = async ({
 
     if (decoded.phone_number !== phone_number) {
       return {
+        code: "AUTH_PHONE_NUMBER_MISMATCH",
         status: 400,
         success: false,
-        message: "Phone number does not match verification token",
       };
     }
 
     const pending = await PendingRegister.findOne({ phone_number });
     if (!pending) {
       return {
+        code: "AUTH_PENDING_SIGNUP_NOT_FOUND",
         status: 404,
         success: false,
-        message: "No pending signup found. Please restart signup.",
       };
     }
 
@@ -115,7 +118,7 @@ export const verifyRegister = async ({
     const registrationTicket = signRegistrationTicket(pending._id.toString());
 
     return {
-      message: "Phone verified",
+      code: "AUTH_PHONE_VERIFIED",
       registrationTicket,
       status: 200,
       success: true,
@@ -123,14 +126,14 @@ export const verifyRegister = async ({
   } catch (err: any) {
     if (err.code === "auth/id-token-expired") {
       return {
-        message: "Verification session expired, please retry",
+        code: "AUTH_VERIFICATION_SESSION_EXPIRED",
         status: 401,
         success: false,
       };
     }
 
     return {
-      message: `Invalid or expired token ${err}`,
+      code: "AUTH_INVALID_VERIFICATION_TOKEN",
       status: 401,
       success: false,
     };
@@ -146,7 +149,7 @@ export const completeRegistration = async ({
 }) => {
   if (!registrationTicket || !password) {
     return {
-      message: "registrationTicket and password are required",
+      code: "AUTH_INVALID_REGISTRATION_REQUEST",
       status: 400,
       success: false,
     };
@@ -158,7 +161,7 @@ export const completeRegistration = async ({
     const pending = await PendingRegister.findById(pendingSignupId);
     if (!pending) {
       return {
-        message: "Pending signup expired or not found. Please restart signup.",
+        code: "AUTH_PENDING_SIGNUP_NOT_FOUND",
         status: 404,
         success: false,
       };
@@ -166,7 +169,7 @@ export const completeRegistration = async ({
 
     if (!pending.is_verified) {
       return {
-        message: "Phone number not verified yet",
+        code: "AUTH_PHONE_NOT_VERIFIED",
         status: 400,
         success: false,
       };
@@ -179,6 +182,7 @@ export const completeRegistration = async ({
 
     if (!valid) {
       return {
+        code: "AUTH_PASSWORD_VALIDATION_FAILED",
         errors,
         status: 400,
         success: false,
@@ -191,8 +195,8 @@ export const completeRegistration = async ({
     });
     if (existingUser) {
       return {
-        message: "Email or phone number already registered",
-        status: 500,
+        code: "AUTH_USER_ALREADY_EXISTS",
+        status: 409,
         success: false,
       };
     }
@@ -210,46 +214,44 @@ export const completeRegistration = async ({
 
     await PendingRegister.deleteOne({ _id: pending._id });
 
-    const accessToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
-
-    user.refreshToken = refreshToken;
-    await user.save();
-
     return {
-      accessToken,
-      refreshToken,
+      code: "AUTH_REGISTRATION_SUCCESS",
       status: 201,
       success: true,
-      message: "User registered successfully",
       user: user.toPublicProfile(),
     };
   } catch (err: any) {
     if (err.name === "JsonWebTokenError" || err.name === "TokenExpiredError") {
       return {
-        message:
-          "Registration session expired. Please verify your phone again.",
+        code: "AUTH_REGISTRATION_SESSION_EXPIRED",
         status: 401,
         success: false,
       };
     }
     return {
-      message: "Failed to complete signup",
+      code: "AUTH_REGISTRATION_ERROR",
       status: 500,
       success: false,
     };
   }
 };
 
-export const loginUser = async ({ email, password }: LoginInput) => {
-  debugger;
-  const user = await User.findOne({ email }).select("+password");
-
+export const loginUser = async ({ phone, password }: LoginInput) => {
+  if (!phone || !password) {
+    return {
+      success: false,
+      status: 404,
+      code: "AUTH_INVALID_CREDENTIALS",
+    };
+  }
+  const user = await User.findOne({ phone_number: phone }).select("+password");
+  console.log("Phone:", phone, "Password:", password);
+  console.log("User found:", user);
   if (!user) {
     return {
       success: false,
       status: 401,
-      message: "Invalid email or password.",
+      code: "AUTH_INVALID_CREDENTIALS",
     };
   }
 
@@ -257,7 +259,7 @@ export const loginUser = async ({ email, password }: LoginInput) => {
     return {
       success: false,
       status: 401,
-      message: "Invalid email or password.",
+      code: "AUTH_INVALID_CREDENTIALS",
     };
   }
 
@@ -270,7 +272,7 @@ export const loginUser = async ({ email, password }: LoginInput) => {
     return {
       success: false,
       status: 401,
-      message: "Invalid email or password.",
+      code: "AUTH_INVALID_CREDENTIALS",
     };
   }
 
@@ -286,11 +288,76 @@ export const loginUser = async ({ email, password }: LoginInput) => {
   return {
     success: true,
     status: 200,
-    message: "Login successful.",
+    code: "AUTH_LOGIN_SUCCESS",
     accessToken,
     refreshToken,
     user: user.toPublicProfile(),
   };
+};
+export const loginCredentailEmail = async ({
+  email,
+  password,
+}: LoginCredentialEmail) => {
+  if (!email || !password) {
+    return {
+      success: false,
+      status: 408,
+      code: "AUTH_INVALID_CREDENTIALS_EMAIL",
+    };
+  }
+  const user = await User.findOne({ email }).select("+password");
+  console.log("Email:", email, "Password:", password);
+  console.log("User found:", user);
+  if (!user) {
+    return {
+      success: false,
+      status: 401,
+      code: "AUTH_INVALID_CREDENTIALS_EMAIL",
+    };
+  }
+
+  if (!user.password) {
+    return {
+      success: false,
+      status: 401,
+      code: "AUTH_INVALID_CREDENTIALS_EMAIL",
+    };
+  }
+
+  const checkPassword = await verifyPassword(
+    password as string,
+    user.password as string,
+  );
+
+  if (!checkPassword) {
+    return {
+      success: false,
+      status: 401,
+      code: "AUTH_INVALID_CREDENTIALS_EMAIL",
+    };
+  }
+
+  const accessToken = generateAccessToken(user);
+  const refreshToken = generateRefreshToken(user);
+
+  return {
+    success: true,
+    status: 200,
+    code: "AUTH_LOGIN_SUCCESS",
+    accessToken,
+    refreshToken,
+  };
+};
+export const logoutUser = async (refreshToken?: string): Promise<void> => {
+  if (!refreshToken) return;
+
+  try {
+    const tokenHash = hashToken(refreshToken);
+
+    await User.deleteOne({
+      tokenHash,
+    });
+  } catch {}
 };
 
 export const refreshTokenService = async (refreshToken: string | undefined) => {
@@ -298,7 +365,7 @@ export const refreshTokenService = async (refreshToken: string | undefined) => {
     return {
       success: false,
       status: 401,
-      message: "Refresh token required",
+      code: "AUTH_REFRESH_TOKEN_REQUIRED",
     };
   }
 
@@ -312,8 +379,8 @@ export const refreshTokenService = async (refreshToken: string | undefined) => {
   } catch (err: any) {
     return {
       success: false,
-      status: 400,
-      message: err.message,
+      status: 401,
+      code: "AUTH_INVALID_REFRESH_TOKEN",
     };
   }
 
@@ -324,7 +391,7 @@ export const refreshTokenService = async (refreshToken: string | undefined) => {
       success: false,
       status: 401,
       payloadId: payload?.sub,
-      message: "Refresh token not valid",
+      code: "AUTH_INVALID_REFRESH_TOKEN",
     };
   }
 
@@ -337,7 +404,7 @@ export const refreshTokenService = async (refreshToken: string | undefined) => {
   return {
     success: true,
     status: 200,
-    message: "Token refreshed successfully",
+    code: "AUTH_TOKEN_REFRESHED",
     accessToken,
     refreshToken: newRefreshToken,
   };

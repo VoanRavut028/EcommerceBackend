@@ -17,13 +17,14 @@ export interface IUser {
   email: string;
   password?: string;
   avatar_url?: string | null;
-  role: "user" | "admin" | "author";
+  role: "user" | "admin";
   provider: "local" | "google" | "github";
   socialId?: string | null;
   address: IAddress[];
-  refreshToken?: string;
+  refreshToken?: string | null;
   isDeleted: boolean;
   deletedAt: Date | null;
+  isActive?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
   firebase_uid?: string;
@@ -72,7 +73,8 @@ const userSchema = new mongoose.Schema<IUser>(
       type: String,
       required: true,
       trim: true,
-      unique:true
+      toLowerCase: true,
+      unique: true,
     },
     password: {
       type: String,
@@ -86,6 +88,10 @@ const userSchema = new mongoose.Schema<IUser>(
       type: String,
       enum: ["user", "admin"],
       default: "user",
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
     },
     provider: {
       type: String,
