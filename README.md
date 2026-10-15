@@ -99,7 +99,16 @@ REGISTRATION_TICKET_SECRET=your_registration_secret
 FIREBASE_PROJECT_ID=your_firebase_project_id
 FIREBASE_CLIENT_EMAIL=your_firebase_client_email
 FIREBASE_PRIVATE_KEY=your_firebase_private_key
+
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_cloudinary_api_key
+CLOUDINARY_API_SECRET=your_cloudinary_api_secret
 ```
+
+Admin product images can be uploaded with `POST /api/v1/products/images` as
+`multipart/form-data` using the `image` field. The response contains `url` and
+`public_id`; include both in a product image object when creating or updating a
+product. Keep the Cloudinary API secret on the backend only.
 
 ## Running the Server
 

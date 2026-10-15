@@ -30,6 +30,7 @@ function toModelImages(
   images:
     | Array<{
         url: string;
+        public_id?: string | undefined;
         alt?: string | undefined;
         isPrimary?: boolean | undefined;
       }>
@@ -37,6 +38,7 @@ function toModelImages(
 ): IImage[] {
   return (images ?? []).map((image) => ({
     url: image.url,
+    ...(image.public_id !== undefined ? { public_id: image.public_id } : {}),
     ...(image.alt !== undefined ? { alt: image.alt } : {}),
     ...(image.isPrimary !== undefined ? { isPrimary: image.isPrimary } : {}),
   }));

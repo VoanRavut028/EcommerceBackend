@@ -3,6 +3,7 @@ import type { HydratedDocument } from "mongoose";
 import slugify from "slugify";
 export interface IImage {
   url: string;
+  public_id?: string;
   alt?: string;
   isPrimary?: boolean;
 }
@@ -50,6 +51,10 @@ const imageSchema = new mongoose.Schema<IImage>(
     url: {
       type: String,
       required: true,
+      trim: true,
+    },
+    public_id: {
+      type: String,
       trim: true,
     },
     alt: {

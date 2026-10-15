@@ -28,6 +28,7 @@ export const variantValidate = z
             .array(
                 z.object({
                     url: z.string().url(),
+                    public_id: z.string().trim().min(1).optional(),
                     alt: z.string().trim().max(200).optional(),
                     isPrimary: z.boolean().optional(),
                 }),
@@ -72,6 +73,7 @@ export const productValidate = z.object({
         .array(
             z.object({
                 url: z.string().url(),
+                public_id: z.string().trim().min(1).optional(),
                 alt: z.string().trim().max(200).optional(),
                 isPrimary: z.boolean().optional(),
             }),
