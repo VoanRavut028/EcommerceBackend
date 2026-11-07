@@ -7,6 +7,6 @@ import {
 const publicProductRouter = Router();
 
 publicProductRouter.get("/products", listProductsPublicController);
-publicProductRouter.get("/:slug", getProductBySlugController);
+publicProductRouter.get("/products/:slug", getProductBySlugController);
 
 export default publicProductRouter;

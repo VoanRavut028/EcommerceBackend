@@ -1,6 +1,6 @@
 import mongoose, { Schema, Types } from "mongoose";
 
-interface ICategory {
+export interface ICategory {
   title: string;
   slug: string;
   parent: Types.ObjectId | null;
@@ -55,7 +55,7 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-categorySchema.pre("validate", function (next) {
+categorySchema.pre("validate", function () {
   if (!this.slug && this.title) {
     this.slug = slugify(this.title);
   }
@@ -63,8 +63,6 @@ categorySchema.pre("validate", function (next) {
   if (this.parent && this._id && this.parent.equals(this._id)) {
     this.invalidate("parent", "Category cannot be its own parent");
   }
-
-  // next();
 });
 
 export default mongoose.model<ICategory>("Category", categorySchema);

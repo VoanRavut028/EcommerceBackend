@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { checkOwnership } from "../../middlewares/auth.middleware.ts";
 import { authorize } from "../../middlewares/authorize.middleware.ts";
-import { validateProduct } from "../../middlewares/product.middleware.ts";
+import { validateBody } from "../../middlewares/validate.middleware.ts";
 import { uploadProductImageFile } from "../../middlewares/upload.middleware.ts";
 import {
   variantValidate,
@@ -21,36 +21,38 @@ import { uploadProductImageController } from "../../controllers/upload/upload.co
 
 const productRouter = Router();
 
-// Every route below requires a valid access token AND the "admin" role.
-// checkOwnership verifies/decodes the token and attaches req.user;
-// authorize("admin") then checks req.user.role.
-productRouter.use(checkOwnership, authorize("admin"));
+const adminOnly = [checkOwnership, authorize("admin")] as const;
 
 productRouter.post(
   "/product",
-  validateProduct(productValidate),
+  ...adminOnly,
+  validateBody(productValidate),
   createProductController,
 );
 productRouter.post(
   "/products/images",
+  ...adminOnly,
   uploadProductImageFile,
   uploadProductImageController,
 );
-productRouter.get("/listProducts", listProductsAdminController);
+productRouter.get("/listProducts", ...adminOnly, listProductsAdminController);
 productRouter.post(
   "/:id/variants",
-  validateProduct(variantValidate),
+  ...adminOnly,
+  validateBody(variantValidate),
   addVariantController,
 );
 productRouter.patch(
   "/:id",
-  validateProduct(productUpdateValidate),
+  ...adminOnly,
+  validateBody(productUpdateValidate),
   updateProductController,
 );
-productRouter.delete("/:id", deleteProductController);
-productRouter.patch("/:id/restore", restoreProductController);
+productRouter.delete("/:id", ...adminOnly, deleteProductController);
+productRouter.patch("/:id/restore", ...adminOnly, restoreProductController);
 productRouter.patch(
   "/:id/variants/:variantId/stock",
+  ...adminOnly,
   adjustVariantStockController,
 );
 

@@ -1,78 +1,94 @@
-import mongoose from "mongoose";
+import mongoose, { Schema, Types } from "mongoose";
 
-interface IPayment {
-  user_id: mongoose.Types.ObjectId;
-  order_id: mongoose.Types.ObjectId;
+export type PaymentStatus =
+  | "pending"
+  | "paid"
+  | "failed"
+  | "partially_refunded"
+  | "refunded";
+
+export type PaymentCurrency = "USD" | "KHR";
+
+export interface IPayment {
+  orderId: Types.ObjectId;
+  userId: Types.ObjectId;
+  payment_option: "abapay";
+  /** Merchant-generated ABA PayWay tran_id. */
+  providerReference: string;
   amount: number;
-  currency: string;
-  payment_method: string;
-  payment_gateway: string;
-  transaction_id: string;
-  status: "pending" | "completed" | "failed" | "refunded";
-  metadata?: Record<string, unknown> | null;
-  isDeleted: boolean;
-  deletedAt: Date | null;
+  currency: PaymentCurrency;
+  status: PaymentStatus;
+  refundedAmount: number;
+  paidAt: Date | null;
+  refundedAt: Date | null;
+  refundInProgress: boolean;
+  pendingRefundAmount: number | null;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
-const paymentSchema = new mongoose.Schema<IPayment>(
+const paymentSchema = new Schema<IPayment>(
   {
-    user_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
-    order_id: {
-      type: mongoose.Schema.Types.ObjectId,
+    orderId: {
+      type: Schema.Types.ObjectId,
       ref: "Order",
       required: true,
-      unique: true,
+      index: true,
     },
-    amount: {
-      type: Number,
+    userId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
       required: true,
-      min: 0,
+      index: true,
     },
+    payment_option: {
+      type: String,
+      enum: ["abapay"],
+      required: true,
+      default: "abapay",
+    },
+    providerReference: {
+      type: String,
+      required: true,
+      unique: true,
+      sparse: true,
+      trim: true,
+      maxlength: 20,
+    },
+    amount: { type: Number, required: true, min: 0 },
     currency: {
       type: String,
+      enum: ["USD", "KHR"],
       required: true,
       default: "USD",
     },
-    payment_method: {
-      type: String,
-      required: true,
-    },
-    payment_gateway: {
-      type: String,
-      required: true,
-      default: "stripe",
-    },
-    transaction_id: {
-      type: String,
-      required: true,
-      unique: true,
-      trim: true,
-    },
     status: {
       type: String,
-      enum: ["pending", "completed", "failed", "refunded"],
+      enum: ["pending", "paid", "failed", "partially_refunded", "refunded"],
+      required: true,
       default: "pending",
+      index: true,
     },
-    metadata: {
-      type: Object,
-      default: null,
-    },
-    isDeleted: {
-      type: Boolean,
-      default: false,
-    },
-    deletedAt: {
-      type: Date,
-      default: null,
-    },
+    refundedAmount: { type: Number, required: true, min: 0, default: 0 },
+    paidAt: { type: Date, default: null },
+    refundedAt: { type: Date, default: null },
+    refundInProgress: { type: Boolean, required: true, default: false },
+    pendingRefundAmount: { type: Number, min: 0, default: null },
   },
+  { timestamps: true },
+);
+
+paymentSchema.index({ orderId: 1, createdAt: -1 });
+paymentSchema.index(
+  { orderId: 1 },
   {
-    timestamps: true,
+    unique: true,
+    partialFilterExpression: {
+      orderId: { $type: "objectId" },
+      status: "pending",
+    },
+    name: "one_pending_payway_payment_per_order",
   },
 );
 
-export default mongoose.model("Payment", paymentSchema);
+export default mongoose.model<IPayment>("Payment", paymentSchema);

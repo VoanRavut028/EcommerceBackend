@@ -13,6 +13,7 @@ export interface IAttribute {
   unit?: string;
 }
 export interface IVariant {
+  _id?: mongoose.Types.ObjectId;
   sku: string;
   options: Map<string, string>;
   price: number;
