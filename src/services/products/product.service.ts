@@ -594,7 +594,7 @@ export const listProductsAdmin = async (filters: ListFilters) => {
         )
         .skip(skip)
         .limit(limit)
-        .populate("category", "name slug"),
+        .populate("category", "title slug type"),
       Product.countDocuments(query),
     ]);
 
@@ -651,7 +651,7 @@ export const listProductsPublic = async (filters: ListFilters) => {
         )
         .skip(skip)
         .limit(limit)
-        .populate("category", "name slug"),
+        .populate("category", "title slug type"),
       Product.countDocuments(query),
     ]);
 
@@ -684,7 +684,7 @@ export const getProductBySlug = async (slug: string) => {
       slug,
       isDeleted: false,
       status: "active",
-    }).populate("category", "name slug");
+    }).populate("category", "title slug type");
 
     if (!product) {
       return {

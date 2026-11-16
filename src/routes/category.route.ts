@@ -27,8 +27,8 @@ categoryRouter.post(
   validateBody(createCategoryValidate),
   createCategoryController,
 );
-categoryRouter.get("/categories", ...adminOnly, getCategoriesController);
-categoryRouter.get("/categories/:id", ...adminOnly, getCategoryController);
+categoryRouter.get("/categories", getCategoriesController);
+categoryRouter.get("/categories/:slug", getCategoryController);
 categoryRouter.patch(
   "/categories/:id",
   ...adminOnly,

@@ -16,6 +16,8 @@ export const updateOrderStatusValidate = z
       "cancelled",
       "returned",
     ]),
+    carrier: z.string().trim().min(1).max(100).optional(),
+    trackingNumber: z.string().trim().min(1).max(150).optional(),
   })
   .strict();
 

@@ -53,7 +53,7 @@ export const updateOrderStatusController = asyncHandler(async (req: Request, res
     res.status(400).json({ success: false, message: "Invalid order id" });
     return;
   }
-  const result = await updateOrderStatus(orderId, req.body.status);
+  const result = await updateOrderStatus(orderId, req.body);
   res.status(result.status).json(result);
 });
 

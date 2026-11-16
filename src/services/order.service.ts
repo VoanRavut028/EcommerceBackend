@@ -1,12 +1,15 @@
 import { randomBytes } from "node:crypto";
-import mongoose from "mongoose";
+import mongoose, { type HydratedDocument } from "mongoose";
 import Address from "../models/address.model.ts";
 import Cart from "../models/cart.model.ts";
 import CartItem from "../models/cartItem.model.ts";
-import Order, { type OrderStatus } from "../models/order.model.ts";
+import Order, { type IOrder, type OrderStatus } from "../models/order.model.ts";
 import OrderItem from "../models/orderItem.model.ts";
 import Product from "../models/product.model.ts";
-import type { CheckoutInput } from "../utils/orderValidator.ts";
+import type { CheckoutInput, UpdateOrderStatusInput } from "../utils/orderValidator.ts";
+
+export const INVENTORY_RESERVATION_MINUTES = 30;
+const inventoryReservationMs = INVENTORY_RESERVATION_MINUTES * 60 * 1000;
 
 class OrderServiceError extends Error {
   constructor(
@@ -69,13 +72,14 @@ function orderNumber() {
   return `ORD-${Date.now()}-${randomBytes(3).toString("hex").toUpperCase()}`;
 }
 
-async function restoreInventory(
-  orderId: mongoose.Types.ObjectId,
+export async function restoreOrderInventory(
+  order: HydratedDocument<IOrder>,
   session: mongoose.ClientSession,
 ) {
-  const items = await OrderItem.find({ orderId }).session(session);
+  if (order.inventoryReleasedAt) return false;
+  const items = await OrderItem.find({ orderId: order._id }).session(session);
   for (const item of items) {
-    await Product.updateOne(
+    const result = await Product.updateOne(
       {
         _id: item.productId,
         variants: { $elemMatch: { _id: item.variantId } },
@@ -83,7 +87,17 @@ async function restoreInventory(
       { $inc: { "variants.$.stock": item.quantity } },
       { session },
     );
+    if (result.modifiedCount !== 1) {
+      throw new OrderServiceError(
+        `Cannot restore stock for ${item.sku}; the product variant is missing`,
+        409,
+        "INVENTORY_VARIANT_MISSING",
+      );
+    }
   }
+  order.inventoryReleasedAt = new Date();
+  order.inventoryReservationExpiresAt = null;
+  return true;
 }
 
 export const checkout = async (userId: string, input: CheckoutInput) => {
@@ -200,6 +214,9 @@ export const checkout = async (userId: string, input: CheckoutInput) => {
           total: subtotal,
           paymentStatus: "pending",
           status: "pending",
+          inventoryReservedAt: new Date(),
+          inventoryReservationExpiresAt: new Date(Date.now() + inventoryReservationMs),
+          inventoryReleasedAt: null,
         }],
         { session },
       );
@@ -268,7 +285,8 @@ export const getOrder = async (userId: string, isAdmin: boolean, orderId: string
   }
 };
 
-export const updateOrderStatus = async (orderId: string, nextStatus: OrderStatus) => {
+export const updateOrderStatus = async (orderId: string, input: UpdateOrderStatusInput) => {
+  const nextStatus = input.status;
   if (invalidObjectId(orderId)) return { success: false, status: 400, code: "ORDER_INVALID_ID", message: "Invalid order id" };
   const session = await mongoose.startSession();
   try {
@@ -298,7 +316,22 @@ export const updateOrderStatus = async (orderId: string, nextStatus: OrderStatus
           "ORDER_REFUND_REQUIRED",
         );
       }
-      if (nextStatus === "cancelled") await restoreInventory(order._id, session);
+      if (nextStatus === "shipped" && (!input.carrier || !input.trackingNumber)) {
+        throw new OrderServiceError(
+          "Carrier and tracking number are required when shipping an order",
+          400,
+          "ORDER_SHIPPING_DETAILS_REQUIRED",
+        );
+      }
+      if (nextStatus === "cancelled" || nextStatus === "returned") {
+        await restoreOrderInventory(order, session);
+      }
+      if (nextStatus === "shipped") {
+        order.carrier = input.carrier!;
+        order.trackingNumber = input.trackingNumber!;
+        order.shippedAt = new Date();
+      }
+      if (nextStatus === "delivered") order.deliveredAt = new Date();
       order.status = nextStatus;
       await order.save({ session });
       didUpdate = true;
@@ -331,7 +364,7 @@ export const cancelOrder = async (userId: string, orderId: string) => {
           "ORDER_REFUND_REQUIRED",
         );
       }
-      await restoreInventory(order._id, session);
+      await restoreOrderInventory(order, session);
       order.status = "cancelled";
       await order.save({ session });
     });
@@ -342,4 +375,50 @@ export const cancelOrder = async (userId: string, orderId: string) => {
   } finally {
     await session.endSession();
   }
+};
+
+/** Release checkout stock reservations after their payment window expires. */
+export const expireCheckoutReservations = async (now = new Date()): Promise<number> => {
+  const reservationCutoff = new Date(now.getTime() - inventoryReservationMs);
+  const expirationWindow = {
+    $or: [
+      { inventoryReservationExpiresAt: { $lte: now } },
+      { inventoryReservationExpiresAt: null, createdAt: { $lte: reservationCutoff } },
+    ],
+  };
+  const candidates = await Order.find({
+    status: "pending",
+    paymentStatus: { $in: ["pending", "failed"] },
+    inventoryReleasedAt: null,
+    ...expirationWindow,
+  }).select("_id").limit(100).lean();
+
+  let expiredCount = 0;
+  for (const candidate of candidates) {
+    const session = await mongoose.startSession();
+    try {
+      let didExpire = false;
+      await session.withTransaction(async () => {
+        didExpire = false;
+        const order = await Order.findOne({
+          _id: candidate._id,
+          status: "pending",
+          paymentStatus: { $in: ["pending", "failed"] },
+          inventoryReleasedAt: null,
+          ...expirationWindow,
+        }).session(session);
+        if (!order) return;
+        await restoreOrderInventory(order, session);
+        order.status = "cancelled";
+        await order.save({ session });
+        didExpire = true;
+      });
+      if (didExpire) expiredCount += 1;
+    } catch (error) {
+      console.error("Checkout reservation expiry failed:", error);
+    } finally {
+      await session.endSession();
+    }
+  }
+  return expiredCount;
 };

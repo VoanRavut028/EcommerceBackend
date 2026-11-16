@@ -1,9 +1,13 @@
 import mongoose, { Schema, Types } from "mongoose";
 
+export const CATEGORY_TYPES = ["women", "men", "kids", "accessories"] as const;
+export type CategoryType = (typeof CATEGORY_TYPES)[number];
+
 export interface ICategory {
   title: string;
   slug: string;
   parent: Types.ObjectId | null;
+  type: CategoryType;
   isActive: boolean;
   isDeleted: boolean;
   deletedAt: Date | null;
@@ -18,15 +22,19 @@ const categorySchema = new Schema<ICategory>(
     },
     slug: {
       type: String,
-      unique: true,
       lowercase: true,
       trim: true,
-      index: true,
     },
     parent: {
       type: Schema.Types.ObjectId,
       ref: "Category",
       default: null,
+      index: true,
+    },
+    type: {
+      type: String,
+      enum: CATEGORY_TYPES,
+      required: true,
       index: true,
     },
     isActive: {
@@ -46,6 +54,10 @@ const categorySchema = new Schema<ICategory>(
   },
   { timestamps: true },
 );
+
+// A slug identifies a category within its department/type. The same slug may
+// therefore be used once for men and once for kids, but not twice for men.
+categorySchema.index({ type: 1, slug: 1 }, { unique: true, name: "type_1_slug_1" });
 
 function slugify(value: string) {
   return value

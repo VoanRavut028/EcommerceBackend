@@ -23,6 +23,7 @@ export interface IPayment {
   refundedAt: Date | null;
   refundInProgress: boolean;
   pendingRefundAmount: number | null;
+  reconciliationRequired: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -74,6 +75,7 @@ const paymentSchema = new Schema<IPayment>(
     refundedAt: { type: Date, default: null },
     refundInProgress: { type: Boolean, required: true, default: false },
     pendingRefundAmount: { type: Number, min: 0, default: null },
+    reconciliationRequired: { type: Boolean, required: true, default: false },
   },
   { timestamps: true },
 );

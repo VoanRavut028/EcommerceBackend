@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import slugify from "slugify";
 import Category from "../models/categories.model.ts";
+import type { CategoryType } from "../models/categories.model.ts";
 import Product from "../models/product.model.ts";
 import type {
   CreateCategoryInput,
@@ -11,8 +12,13 @@ function makeSlug(value: string): string {
   return slugify(value, { lower: true, strict: true, trim: true });
 }
 
-async function findSlugConflict(slug: string, exceptId?: string): Promise<boolean> {
-  const query: Record<string, unknown> = { slug };
+async function findSlugConflict(
+  slug: string,
+  type: CategoryType,
+  exceptId?: string,
+): Promise<boolean> {
+  // Slugs are unique within a type, including soft-deleted categories.
+  const query: Record<string, unknown> = { slug, type };
   if (exceptId) query._id = { $ne: exceptId };
   return Boolean(await Category.exists(query));
 }
@@ -20,6 +26,7 @@ async function findSlugConflict(slug: string, exceptId?: string): Promise<boolea
 async function validateParent(
   parentId: string | null | undefined,
   categoryId?: string,
+  categoryType?: CategoryType,
 ): Promise<string | null> {
   if (parentId == null) return null;
   if (!mongoose.isValidObjectId(parentId)) return "Invalid parent category id";
@@ -28,9 +35,12 @@ async function validateParent(
   }
 
   let parent = await Category.findOne({ _id: parentId, isDeleted: false }).select(
-    "_id parent",
+    "_id parent type",
   );
   if (!parent) return "Parent category not found";
+  if (categoryType && parent.type && parent.type !== categoryType) {
+    return "A child category must use the same type as its parent";
+  }
 
   // Prevent moving a category under one of its own descendants.
   const visited = new Set<string>();
@@ -45,14 +55,37 @@ async function validateParent(
     parent = await Category.findOne({
       _id: parent.parent,
       isDeleted: false,
-    }).select("_id parent");
+    }).select("_id parent type");
   }
 
   return null;
 }
 
 export const createCategory = async (data: CreateCategoryInput) => {
-  const parentError = await validateParent(data.parent);
+  const parentCategory = data.parent
+    ? await Category.findOne({ _id: data.parent, isDeleted: false }).select("_id type")
+    : null;
+
+  if (data.parent && !parentCategory) {
+    return {
+      success: false,
+      status: 400,
+      code: "CATEGORY_INVALID_PARENT",
+      message: "Parent category not found",
+    };
+  }
+
+  const categoryType = data.type ?? parentCategory?.type;
+  if (!categoryType) {
+    return {
+      success: false,
+      status: 400,
+      code: "CATEGORY_TYPE_REQUIRED",
+      message: "A top-level category must specify a type",
+    };
+  }
+
+  const parentError = await validateParent(data.parent, undefined, categoryType);
   if (parentError) {
     return {
       success: false,
@@ -62,7 +95,9 @@ export const createCategory = async (data: CreateCategoryInput) => {
     };
   }
 
-  const slug = data.slug || makeSlug(data.title);
+  // Normalize here as well as in request validation so direct service calls
+  // cannot bypass canonical, case-insensitive slug conflict checks.
+  const slug = makeSlug(data.slug ?? data.title);
   if (!slug) {
     return {
       success: false,
@@ -73,12 +108,12 @@ export const createCategory = async (data: CreateCategoryInput) => {
   }
 
   try {
-    if (await findSlugConflict(slug)) {
+    if (await findSlugConflict(slug, categoryType)) {
       return {
         success: false,
         status: 409,
         code: "CATEGORY_SLUG_EXISTS",
-        message: "A category with this slug already exists",
+        message: "A category with this slug already exists for this type",
       };
     }
 
@@ -86,6 +121,7 @@ export const createCategory = async (data: CreateCategoryInput) => {
       title: data.title,
       slug,
       parent: data.parent ?? null,
+      type: categoryType,
       ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
     });
 
@@ -102,7 +138,7 @@ export const createCategory = async (data: CreateCategoryInput) => {
         success: false,
         status: 409,
         code: "CATEGORY_SLUG_EXISTS",
-        message: "A category with this slug already exists",
+        message: "A category with this slug already exists for this type",
       };
     }
     if (error instanceof mongoose.Error.ValidationError) {
@@ -123,11 +159,20 @@ export const createCategory = async (data: CreateCategoryInput) => {
   }
 };
 
-export const getCategories = async () => {
+export const getCategories = async (type?: CategoryType) => {
   try {
-    const categories = await Category.find({ isDeleted: false })
+    // Public catalog reads must not expose disabled or soft-deleted categories.
+    const categories = await Category.find({
+      isDeleted: false,
+      isActive: true,
+      ...(type ? { type } : {}),
+    })
       .sort({ title: 1 })
-      .populate("parent", "title slug")
+      .populate({
+        path: "parent",
+        select: "title slug type",
+        match: { isDeleted: false, isActive: true },
+      })
       .lean();
 
     return {
@@ -147,21 +192,18 @@ export const getCategories = async () => {
   }
 };
 
-export const getCategory = async (categoryId: string) => {
-  if (!mongoose.isValidObjectId(categoryId)) {
-    return {
-      success: false,
-      status: 400,
-      code: "CATEGORY_INVALID_ID",
-      message: "Invalid category id",
-    };
-  }
-
+export const getCategory = async (slug: string, type: CategoryType) => {
   try {
     const category = await Category.findOne({
-      _id: categoryId,
+      slug: slug.toLowerCase().trim(),
+      type,
       isDeleted: false,
-    }).populate("parent", "title slug");
+      isActive: true,
+    }).populate({
+      path: "parent",
+      select: "title slug type",
+      match: { isDeleted: false, isActive: true },
+    });
 
     if (!category) {
       return {
@@ -221,8 +263,29 @@ export const updateCategory = async (
     };
   }
 
-  if (updates.parent !== undefined) {
-    const parentError = await validateParent(updates.parent, categoryId);
+  const nextType = updates.type ?? current.type;
+  const nextParent = updates.parent !== undefined
+    ? updates.parent
+    : current.parent?.toString() ?? null;
+
+  if (updates.type !== undefined && updates.type !== current.type) {
+    const hasMismatchedChildren = await Category.exists({
+      parent: categoryId,
+      isDeleted: false,
+      type: { $exists: true, $ne: updates.type },
+    });
+    if (hasMismatchedChildren) {
+      return {
+        success: false,
+        status: 409,
+        code: "CATEGORY_TYPE_HAS_CHILDREN",
+        message: "Update child categories before changing this category type",
+      };
+    }
+  }
+
+  if (updates.parent !== undefined || updates.type !== undefined) {
+    const parentError = await validateParent(nextParent, categoryId, nextType);
     if (parentError) {
       return {
         success: false,
@@ -233,22 +296,24 @@ export const updateCategory = async (
     }
   }
 
-  const slug = updates.slug ?? (updates.title ? makeSlug(updates.title) : undefined);
-  if (slug !== undefined) {
-    if (!slug) {
-      return {
-        success: false,
-        status: 400,
-        code: "CATEGORY_INVALID_SLUG",
-        message: "Could not generate a slug from the category title",
-      };
-    }
-    if (await findSlugConflict(slug, categoryId)) {
+  const requestedSlug = updates.slug ?? (updates.title ? makeSlug(updates.title) : undefined);
+  const slug = requestedSlug === undefined ? undefined : makeSlug(requestedSlug);
+  if (slug !== undefined && !slug) {
+    return {
+      success: false,
+      status: 400,
+      code: "CATEGORY_INVALID_SLUG",
+      message: "Could not generate a slug from the category title",
+    };
+  }
+  const slugForType = slug ?? current.slug;
+  if (slug !== undefined || updates.type !== undefined) {
+    if (await findSlugConflict(slugForType, nextType, categoryId)) {
       return {
         success: false,
         status: 409,
         code: "CATEGORY_SLUG_EXISTS",
-        message: "A category with this slug already exists",
+        message: "A category with this slug already exists for this type",
       };
     }
   }
@@ -256,6 +321,7 @@ export const updateCategory = async (
   try {
     if (updates.title !== undefined) current.title = updates.title;
     if (slug !== undefined) current.slug = slug;
+    if (updates.type !== undefined) current.type = updates.type;
     if (updates.parent !== undefined) {
       current.parent = updates.parent
         ? new mongoose.Types.ObjectId(updates.parent)
@@ -277,7 +343,7 @@ export const updateCategory = async (
         success: false,
         status: 409,
         code: "CATEGORY_SLUG_EXISTS",
-        message: "A category with this slug already exists",
+        message: "A category with this slug already exists for this type",
       };
     }
     if (error instanceof mongoose.Error.ValidationError) {
@@ -384,11 +450,11 @@ export const restoreCategory = async (categoryId: string) => {
     }
 
     if (category.parent) {
-      const parentExists = await Category.exists({
+      const parent = await Category.findOne({
         _id: category.parent,
         isDeleted: false,
-      });
-      if (!parentExists) {
+      }).select("type");
+      if (!parent) {
         return {
           success: false,
           status: 409,
@@ -396,14 +462,22 @@ export const restoreCategory = async (categoryId: string) => {
           message: "Restore or assign a valid parent category before restoring this category",
         };
       }
+      if (parent.type && category.type && parent.type !== category.type) {
+        return {
+          success: false,
+          status: 409,
+          code: "CATEGORY_PARENT_TYPE_MISMATCH",
+          message: "The category type must match its parent before restoring it",
+        };
+      }
     }
 
-    if (await findSlugConflict(category.slug, categoryId)) {
+    if (await findSlugConflict(category.slug, category.type, categoryId)) {
       return {
         success: false,
         status: 409,
         code: "CATEGORY_SLUG_EXISTS",
-        message: "Another category is already using this slug",
+        message: "Another category is already using this slug for this type",
       };
     }
 
@@ -424,7 +498,7 @@ export const restoreCategory = async (categoryId: string) => {
         success: false,
         status: 409,
         code: "CATEGORY_SLUG_EXISTS",
-        message: "Another category is already using this slug",
+        message: "Another category is already using this slug for this type",
       };
     }
     console.error("restoreCategory service error:", error);

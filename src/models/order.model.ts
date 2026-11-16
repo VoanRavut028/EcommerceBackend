@@ -27,6 +27,13 @@ export interface IOrder {
   total: number;
   paymentStatus: "pending" | "paid" | "failed" | "refunded";
   status: OrderStatus;
+  inventoryReservedAt: Date | null;
+  inventoryReservationExpiresAt: Date | null;
+  inventoryReleasedAt: Date | null;
+  carrier: string | null;
+  trackingNumber: string | null;
+  shippedAt: Date | null;
+  deliveredAt: Date | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -60,10 +67,18 @@ const orderSchema = new Schema<IOrder>(
       default: "pending",
       index: true,
     },
+    inventoryReservedAt: { type: Date, default: null },
+    inventoryReservationExpiresAt: { type: Date, default: null, index: true },
+    inventoryReleasedAt: { type: Date, default: null },
+    carrier: { type: String, trim: true, maxlength: 100, default: null },
+    trackingNumber: { type: String, trim: true, maxlength: 150, default: null },
+    shippedAt: { type: Date, default: null },
+    deliveredAt: { type: Date, default: null },
   },
   { timestamps: true },
 );
 
 orderSchema.index({ userId: 1, createdAt: -1 });
+orderSchema.index({ status: 1, paymentStatus: 1, inventoryReservationExpiresAt: 1 });
 
 export default mongoose.model<IOrder>("Order", orderSchema);
